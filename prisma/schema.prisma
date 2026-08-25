@@ -1,0 +1,123 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  ADMIN
+  AGENT
+}
+
+enum UserStatus {
+  PENDING
+  ACTIVE
+  BLOCKED
+  REFUSED
+}
+
+enum TransferStatus {
+  CREATED
+  READY_FOR_PAYMENT
+  PAID
+  CANCELLED
+}
+
+model User {
+  id        String     @id @default(uuid())
+  firstName String
+  lastName  String
+  email     String     @unique
+  phone     String     @unique
+  password  String
+  role      UserRole
+  status    UserStatus @default(PENDING)
+  cityId    String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  city      City?     @relation(fields: [cityId], references: [id], onDelete: Restrict)
+
+  originTransfers       Transfer[]        @relation("OriginAgent")
+  destinationTransfers  Transfer[]        @relation("DestinationAgent")
+  agentCashCollections  CashCollection[]  @relation("Agent")
+  createdCashCollections CashCollection[] @relation("CreatedBy")
+
+  @@index([role])
+  @@index([status])
+  @@index([cityId])
+  @@map("users")
+}
+
+model City {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  isActive  Boolean  @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users User[]
+
+  originTransfers       Transfer[] @relation("OriginTransfers")
+  destinationTransfers  Transfer[] @relation("DestinationTransfers")
+
+  @@index([name])
+  @@map("cities")
+}
+
+model Transfer {
+  id                String         @id @default(uuid())
+  reference         String         @unique
+  senderName        String
+  senderPhone       String
+  recipientName     String
+  recipientPhone    String
+  amount            Decimal        @db.Decimal(10, 2)
+  fee               Decimal        @db.Decimal(10, 2)
+  withdrawalCode    String         @db.VarChar(4)
+  status            TransferStatus @default(CREATED)
+  originCityId      String
+  destinationCityId String
+  originAgentId     String
+  destinationAgentId String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  originCity      City  @relation("OriginTransfers", fields: [originCityId], references: [id], onDelete: Restrict)
+  destinationCity City  @relation("DestinationTransfers", fields: [destinationCityId], references: [id], onDelete: Restrict)
+  originAgent     User  @relation("OriginAgent", fields: [originAgentId], references: [id], onDelete: Restrict)
+  destinationAgent User @relation("DestinationAgent", fields: [destinationAgentId], references: [id], onDelete: Restrict)
+
+  @@index([status])
+  @@index([createdAt])
+  @@index([originCityId])
+  @@index([destinationCityId])
+  @@index([originAgentId])
+  @@index([destinationAgentId])
+  @@index([reference])
+  @@map("transfers")
+}
+
+model CashCollection {
+  id          String    @id @default(uuid())
+  agentId     String
+  amount      Decimal   @db.Decimal(10, 2)
+  collectedAt DateTime
+  createdBy   String
+  notes       String?
+  createdAt   DateTime  @default(now())
+
+  agent    User @relation("Agent", fields: [agentId], references: [id], onDelete: Restrict)
+  admin    User @relation("CreatedBy", fields: [createdBy], references: [id], onDelete: Restrict)
+
+  @@index([agentId])
+  @@index([collectedAt])
+  @@index([createdBy])
+  @@map("cash_collections")
+}
