@@ -75,6 +75,40 @@ const transferSelectWithCode = {
   withdrawalCode: true,
 } as const
 
+// Select allégé pour les vues liste (aucun écran liste n'affiche les
+// coordonnées des agents, seulement leurs identifiants) : évite de charger
+// originAgent/destinationAgent (et leur city imbriquée) sur chaque ligne
+// d'une liste potentiellement longue. La vue détail garde transferSelect.
+const transferListSelect = {
+  id: true,
+  reference: true,
+  senderName: true,
+  senderPhone: true,
+  recipientName: true,
+  recipientPhone: true,
+  amount: true,
+  fee: true,
+  status: true,
+  originCityId: true,
+  destinationCityId: true,
+  originAgentId: true,
+  destinationAgentId: true,
+  originCity: {
+    select: {
+      id: true,
+      name: true,
+    },
+  },
+  destinationCity: {
+    select: {
+      id: true,
+      name: true,
+    },
+  },
+  createdAt: true,
+  updatedAt: true,
+} as const
+
 export const transferRepository = {
   findDestinationCity: (id: string) =>
     prisma.city.findUnique({
@@ -173,7 +207,7 @@ export const transferRepository = {
       skip,
       take,
       orderBy: { createdAt: "desc" },
-      select: transferSelect,
+      select: transferListSelect,
     }),
 
   countByOriginAgent: (agentId: string, status?: TransferStatus) =>
@@ -193,7 +227,7 @@ export const transferRepository = {
       skip,
       take,
       orderBy: { createdAt: "desc" },
-      select: transferSelect,
+      select: transferListSelect,
     }),
 
   countByDestinationAgent: (agentId: string, status?: TransferStatus | TransferStatus[]) =>
@@ -212,7 +246,7 @@ export const transferRepository = {
       skip,
       take,
       orderBy: { createdAt: "desc" },
-      select: transferSelect,
+      select: transferListSelect,
     }),
 
   countAllWithFilters: (status?: TransferStatus) =>
@@ -235,7 +269,7 @@ export const transferRepository = {
       skip,
       take,
       orderBy: { createdAt: "desc" },
-      select: transferSelect,
+      select: transferListSelect,
     }),
 
   countByAgentId: (agentId: string, status?: TransferStatus) =>
