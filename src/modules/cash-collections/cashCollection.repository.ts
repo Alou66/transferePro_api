@@ -96,8 +96,8 @@ export const cashCollectionRepository = {
       }),
     ]);
 
-    const totalCreated =
-      Number(createdAgg._sum.amount || 0) + Number(createdAgg._sum.fee || 0);
+    const feesGenerated = Number(createdAgg._sum.fee || 0);
+    const totalCreated = Number(createdAgg._sum.amount || 0) + feesGenerated;
     const totalPaid = Number(paidAgg._sum.amount || 0);
     const totalCollected = Number(collectedAgg._sum.amount || 0);
     const currentBalance = totalCreated - totalPaid - totalCollected;
@@ -106,6 +106,7 @@ export const cashCollectionRepository = {
       totalCreated,
       totalPaid,
       totalCollected,
+      feesGenerated,
       currentBalance,
     };
   },
