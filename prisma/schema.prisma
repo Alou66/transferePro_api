@@ -44,6 +44,7 @@ model User {
 
   originTransfers       Transfer[]        @relation("OriginAgent")
   destinationTransfers  Transfer[]        @relation("DestinationAgent")
+  paidTransfers         Transfer[]        @relation("PaidTransfers")
   agentCashCollections  CashCollection[]  @relation("Agent")
   createdCashCollections CashCollection[] @relation("CreatedBy")
 
@@ -85,6 +86,8 @@ model Transfer {
   destinationCityId String
   originAgentId     String
   destinationAgentId String
+  paidAt            DateTime?
+  paidByAgentId     String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -93,6 +96,7 @@ model Transfer {
   destinationCity City  @relation("DestinationTransfers", fields: [destinationCityId], references: [id], onDelete: Restrict)
   originAgent     User  @relation("OriginAgent", fields: [originAgentId], references: [id], onDelete: Restrict)
   destinationAgent User @relation("DestinationAgent", fields: [destinationAgentId], references: [id], onDelete: Restrict)
+  paidByAgent     User?  @relation("PaidTransfers", fields: [paidByAgentId], references: [id], onDelete: Restrict)
 
   @@index([status])
   @@index([createdAt])

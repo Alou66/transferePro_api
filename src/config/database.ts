@@ -1,3 +1,44 @@
-import { PrismaClient } from "@prisma/client";
+import { Prisma, PrismaClient } from "@prisma/client";
 
-export const prisma = new PrismaClient();
+// Codes Prisma correspondant à des coupures réseau transitoires (pas des
+// erreurs métier) : la base est momentanément injoignable/lente, pas en panne.
+const RETRYABLE_ERROR_CODES = new Set(["P1001", "P1002", "P1017"]);
+const MAX_RETRIES = 3;
+const RETRY_DELAY_MS = 300;
+
+function isRetryableError(error: unknown): boolean {
+  // Erreur levée quand le moteur Prisma n'a pas encore réussi à établir la
+  // connexion (ex: tout premier appel après un (re)démarrage du serveur).
+  if (error instanceof Prisma.PrismaClientInitializationError) {
+    return true;
+  }
+
+  return (
+    error instanceof Prisma.PrismaClientKnownRequestError &&
+    RETRYABLE_ERROR_CODES.has(error.code)
+  );
+}
+
+function wait(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+const basePrisma = new PrismaClient();
+
+export const prisma = basePrisma.$extends({
+  query: {
+    async $allOperations({ args, query }) {
+      for (let attempt = 1; ; attempt++) {
+        try {
+          return await query(args);
+        } catch (error) {
+          if (!isRetryableError(error) || attempt >= MAX_RETRIES) {
+            throw error;
+          }
+          console.warn(`Connexion base de données instable, nouvelle tentative (${attempt}/${MAX_RETRIES - 1})...`);
+          await wait(RETRY_DELAY_MS * attempt);
+        }
+      }
+    },
+  },
+});
