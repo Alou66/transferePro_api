@@ -198,26 +198,6 @@ export const transferRepository = {
       select: transferSelectWithCode,
     }),
 
-  findByOriginAgent: (agentId: string, skip: number, take: number, status?: TransferStatus) =>
-    prisma.transfer.findMany({
-      where: {
-        originAgentId: agentId,
-        ...(status ? { status } : {}),
-      },
-      skip,
-      take,
-      orderBy: { createdAt: "desc" },
-      select: transferListSelect,
-    }),
-
-  countByOriginAgent: (agentId: string, status?: TransferStatus) =>
-    prisma.transfer.count({
-      where: {
-        originAgentId: agentId,
-        ...(status ? { status } : {}),
-      },
-    }),
-
   findIncomingByAgent: (agentId: string, skip: number, take: number, status?: TransferStatus | TransferStatus[]) =>
     prisma.transfer.findMany({
       where: {

@@ -140,28 +140,6 @@ export class TransferService {
     };
   }
 
-  static async getMyTransfers(agentId: string, page: number, limit: number, status?: string) {
-    const skip = (page - 1) * limit;
-    const transferStatus = status as TransferStatus | undefined;
-
-    const [items, total] = await Promise.all([
-      transferRepository.findByOriginAgent(agentId, skip, limit, transferStatus),
-      transferRepository.countByOriginAgent(agentId, transferStatus),
-    ]);
-
-    const totalPages = Math.ceil(total / limit) || 1;
-
-    return {
-      items: items.map(serializeTransfer),
-      pagination: {
-        page,
-        limit,
-        total,
-        totalPages,
-      },
-    };
-  }
-
   static async getMyAll(agentId: string, page: number, limit: number, status?: string) {
     const skip = (page - 1) * limit;
     const transferStatus = status as TransferStatus | undefined;

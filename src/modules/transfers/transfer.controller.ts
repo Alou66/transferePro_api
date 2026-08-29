@@ -64,30 +64,6 @@ export class TransferController {
     });
   }
 
-  static async getMyTransfers(req: Request, res: Response) {
-    const query = listTransfersQuerySchema.parse(req.query);
-    const user = (req as RequestWithUser).user;
-
-    if (!user) {
-      return res.status(401).json({
-        success: false,
-        message: "Utilisateur non authentifié",
-      });
-    }
-
-    const result = await TransferService.getMyTransfers(
-      user.userId,
-      query.page,
-      query.limit,
-      query.status
-    );
-
-    res.json({
-      success: true,
-      data: result,
-    });
-  }
-
   static async getAllForAdmin(req: Request, res: Response) {
     const query = listTransfersQuerySchema.parse(req.query);
     const user = (req as RequestWithUser).user;
