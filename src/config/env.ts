@@ -9,6 +9,7 @@ const envSchema = z.object({
   DATABASE_URL: z.string().url(),
   JWT_SECRET: z.string().min(1),
   JWT_EXPIRES_IN: z.string().default("24h"),
+  FRONTEND_URL: z.string().url(),
 });
 
 export const env = envSchema.parse(process.env);
