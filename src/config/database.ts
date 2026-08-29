@@ -3,8 +3,11 @@ import { Prisma, PrismaClient } from "@prisma/client";
 // Codes Prisma correspondant à des coupures réseau transitoires (pas des
 // erreurs métier) : la base est momentanément injoignable/lente, pas en panne.
 const RETRYABLE_ERROR_CODES = new Set(["P1001", "P1002", "P1017"]);
-const MAX_RETRIES = 3;
-const RETRY_DELAY_MS = 300;
+// Neon (serverless) suspend son compute après inactivité et le réveil peut
+// prendre plusieurs secondes : la fenêtre de retry doit être assez large pour
+// couvrir ce cold start, pas juste une coupure réseau transitoire.
+const MAX_RETRIES = 5;
+const RETRY_DELAY_MS = 1000;
 
 function isRetryableError(error: unknown): boolean {
   // Erreur levée quand le moteur Prisma n'a pas encore réussi à établir la
