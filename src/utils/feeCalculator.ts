@@ -6,6 +6,6 @@ export function calculateTransferFee(amount: number): number {
   }
 
   const tranches = Math.ceil(amount / 5000);
-
   return tranches * 250;
 }
+ 
