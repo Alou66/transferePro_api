@@ -38,6 +38,9 @@ model User {
   status    UserStatus @default(PENDING)
   cityId    String?
 
+  resetPasswordTokenHash String?
+  resetPasswordExpiresAt DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

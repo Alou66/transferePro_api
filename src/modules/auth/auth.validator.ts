@@ -13,3 +13,12 @@ export const loginSchema = z.object({
   email: z.string().email("Email invalide"),
   password: z.string().min(1, "Mot de passe requis"),
 });
+
+export const verifyPhoneForResetSchema = z.object({
+  phone: z.string().min(1, "Le numéro de téléphone est requis"),
+});
+
+export const resetPasswordSchema = z.object({
+  resetToken: z.string().min(1, "Jeton de réinitialisation requis"),
+  newPassword: z.string().min(6, "Le mot de passe doit contenir au moins 6 caractères"),
+});

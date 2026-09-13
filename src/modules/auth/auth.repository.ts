@@ -84,6 +84,30 @@ export const authRepository = {
     jwt.sign(payload, env.JWT_SECRET, {
       expiresIn: env.JWT_EXPIRES_IN as jwt.SignOptions["expiresIn"],
     }),
+
+  setResetPasswordToken: (userId: string, tokenHash: string, expiresAt: Date) =>
+    prisma.user.update({
+      where: { id: userId },
+      data: { resetPasswordTokenHash: tokenHash, resetPasswordExpiresAt: expiresAt },
+    }),
+
+  findByValidResetToken: (tokenHash: string) =>
+    prisma.user.findFirst({
+      where: {
+        resetPasswordTokenHash: tokenHash,
+        resetPasswordExpiresAt: { gt: new Date() },
+      },
+    }),
+
+  resetPassword: (userId: string, hashedPassword: string) =>
+    prisma.user.update({
+      where: { id: userId },
+      data: {
+        password: hashedPassword,
+        resetPasswordTokenHash: null,
+        resetPasswordExpiresAt: null,
+      },
+    }),
 };
 
 export const comparePassword = async (password: string, hash: string) => {

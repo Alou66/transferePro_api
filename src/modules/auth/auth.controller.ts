@@ -1,6 +1,11 @@
 import { Request, Response } from "express";
 import { AuthService } from "./auth.service";
-import { registerSchema, loginSchema } from "./auth.validator";
+import {
+  registerSchema,
+  loginSchema,
+  verifyPhoneForResetSchema,
+  resetPasswordSchema,
+} from "./auth.validator";
 import { RequestWithUser } from "../../types/auth";
 
 export class AuthController {
@@ -23,6 +28,28 @@ export class AuthController {
     res.json({
       success: true,
       data: result,
+    });
+  }
+
+  static async verifyPhoneForReset(req: Request, res: Response) {
+    const validated = verifyPhoneForResetSchema.parse(req.body);
+
+    const result = await AuthService.verifyPhoneForReset(validated.phone);
+
+    res.json({
+      success: true,
+      data: result,
+    });
+  }
+
+  static async resetPassword(req: Request, res: Response) {
+    const validated = resetPasswordSchema.parse(req.body);
+
+    await AuthService.resetPasswordWithToken(validated.resetToken, validated.newPassword);
+
+    res.json({
+      success: true,
+      message: "Mot de passe réinitialisé avec succès",
     });
   }
 

@@ -1,6 +1,11 @@
+import crypto from "crypto";
 import { AppError } from "../../types/errors";
 import { prisma } from "../../config/database";
 import { authRepository, comparePassword, hashPassword } from "./auth.repository";
+
+const RESET_TOKEN_TTL_MS = 10 * 60 * 1000;
+
+const hashResetToken = (token: string) => crypto.createHash("sha256").update(token).digest("hex");
 
 export class AuthService {
   static async register(data: {
@@ -96,6 +101,40 @@ export class AuthService {
         city: user.city,
       },
     };
+  }
+
+  static async verifyPhoneForReset(phone: string) {
+    const user = await authRepository.findByPhone(phone);
+
+    if (!user) {
+      throw new AppError("Aucun compte trouvé avec ce numéro de téléphone", 404);
+    }
+
+    if (user.status === "BLOCKED" || user.status === "REFUSED") {
+      throw new AppError("Ce compte n'est pas actif", 403);
+    }
+
+    const rawToken = crypto.randomBytes(32).toString("hex");
+    const expiresAt = new Date(Date.now() + RESET_TOKEN_TTL_MS);
+
+    await authRepository.setResetPasswordToken(user.id, hashResetToken(rawToken), expiresAt);
+
+    return {
+      resetToken: rawToken,
+      firstName: user.firstName,
+      lastName: user.lastName,
+    };
+  }
+
+  static async resetPasswordWithToken(resetToken: string, newPassword: string) {
+    const user = await authRepository.findByValidResetToken(hashResetToken(resetToken));
+
+    if (!user) {
+      throw new AppError("Ce lien de réinitialisation est invalide ou a expiré", 400);
+    }
+
+    const hashedPassword = await hashPassword(newPassword);
+    await authRepository.resetPassword(user.id, hashedPassword);
   }
 
   static async getMe(userId: string) {
