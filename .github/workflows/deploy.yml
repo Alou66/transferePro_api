@@ -45,46 +45,72 @@ jobs:
             set -e
             cd ~/transfertPro/transfertPro-infra
 
-            sed -i "s|^API_VERSION=.*|API_VERSION=${{ github.sha }}|" .env
-
-            sudo docker compose pull backend
-            sudo docker compose up -d backend
-            sudo docker image prune -f
-
-            CONTAINER_ID=$(sudo docker compose ps -q backend)
-            if [ -z "$CONTAINER_ID" ]; then
-              echo "ERROR: Backend container not found after deploy"
+            OLD_API_VERSION=$(grep '^API_VERSION=' .env | cut -d= -f2- || echo "")
+            if [ -z "$OLD_API_VERSION" ] || [ "$OLD_API_VERSION" = "latest" ]; then
+              echo "ERROR: API_VERSION in .env is missing, empty, or set to 'latest'. Aborting deployment before any modification."
               exit 1
             fi
 
-            CONTAINER_IMAGE=$(sudo docker inspect --format='{{.Config.Image}}' "$CONTAINER_ID")
-            EXPECTED_IMAGE="ghcr.io/alou66/transferepro-api:${{ github.sha }}"
-            echo "Container image: $CONTAINER_IMAGE"
-            echo "Expected image:  $EXPECTED_IMAGE"
-            case "$CONTAINER_IMAGE" in
-              *"$EXPECTED_IMAGE"*)
-                echo "Image verification passed"
-                ;;
-              *)
-                echo "ERROR: Container is NOT using the expected SHA image"
-                exit 1
-                ;;
-            esac
+            deploy() {
+              local version=$1
 
-            HEALTHY=false
-            for i in {1..30}; do
-              HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" https://transfert-pro.online/api/health || echo "000")
-              if [ "$HTTP_CODE" = "200" ]; then
-                HEALTHY=true
-                break
+              sed -i "s|^API_VERSION=.*|API_VERSION=${version}|" .env || return 1
+              sudo docker compose pull backend || return 1
+              sudo docker compose up -d backend || return 1
+              sudo docker image prune -f
+
+              CONTAINER_ID=$(sudo docker compose ps -q backend)
+              if [ -z "$CONTAINER_ID" ]; then
+                echo "ERROR: Backend container not found"
+                return 1
               fi
-              echo "Health check attempt $i/30: HTTP $HTTP_CODE, retrying in 10s..."
-              sleep 10
-            done
 
-            if [ "$HEALTHY" = "true" ]; then
-              echo "Health check passed"
+              CONTAINER_IMAGE=$(sudo docker inspect --format='{{.Config.Image}}' "$CONTAINER_ID")
+              EXPECTED_IMAGE="ghcr.io/alou66/transferepro-api:${version}"
+              echo "Container image: $CONTAINER_IMAGE"
+              echo "Expected image:  $EXPECTED_IMAGE"
+              case "$CONTAINER_IMAGE" in
+                *"$EXPECTED_IMAGE"*)
+                  echo "Image verification passed"
+                  ;;
+                *)
+                  echo "ERROR: Container is NOT using the expected image $EXPECTED_IMAGE"
+                  return 1
+                  ;;
+              esac
+
+              HEALTHY=false
+              for i in {1..30}; do
+                HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" https://transfert-pro.online/api/health || echo "000")
+                if [ "$HTTP_CODE" = "200" ]; then
+                  HEALTHY=true
+                  break
+                fi
+                echo "Health check attempt $i/30: HTTP $HTTP_CODE, retrying in 10s..."
+                sleep 10
+              done
+
+              if [ "$HEALTHY" = "true" ]; then
+                echo "Health check passed"
+                return 0
+              else
+                echo "ERROR: Health check failed after 30 attempts"
+                return 1
+              fi
+            }
+
+            if deploy "${{ github.sha }}"; then
+              echo "Deployment succeeded with SHA ${{ github.sha }}"
+              exit 0
+            fi
+
+            echo "ERROR: New deployment failed. Initiating rollback to API_VERSION=$OLD_API_VERSION"
+
+            if deploy "$OLD_API_VERSION"; then
+              echo "ERROR: New deployment failed, but production was successfully restored to API_VERSION=$OLD_API_VERSION"
+              exit 1
             else
-              echo "ERROR: Health check failed after 30 attempts"
+              echo "ERROR: New deployment failed AND rollback failed"
+              echo "ERROR: Production may be in a degraded state. Manual intervention required."
               exit 1
             fi
