@@ -42,7 +42,49 @@ jobs:
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
+            set -e
             cd ~/transfertPro/transfertPro-infra
+
+            sed -i "s|^API_VERSION=.*|API_VERSION=${{ github.sha }}|" .env
+
             sudo docker compose pull backend
             sudo docker compose up -d backend
             sudo docker image prune -f
+
+            CONTAINER_ID=$(sudo docker compose ps -q backend)
+            if [ -z "$CONTAINER_ID" ]; then
+              echo "ERROR: Backend container not found after deploy"
+              exit 1
+            fi
+
+            CONTAINER_IMAGE=$(sudo docker inspect --format='{{.Config.Image}}' "$CONTAINER_ID")
+            EXPECTED_IMAGE="ghcr.io/alou66/transferepro-api:${{ github.sha }}"
+            echo "Container image: $CONTAINER_IMAGE"
+            echo "Expected image:  $EXPECTED_IMAGE"
+            case "$CONTAINER_IMAGE" in
+              *"$EXPECTED_IMAGE"*)
+                echo "Image verification passed"
+                ;;
+              *)
+                echo "ERROR: Container is NOT using the expected SHA image"
+                exit 1
+                ;;
+            esac
+
+            HEALTHY=false
+            for i in {1..30}; do
+              HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" https://transfert-pro.online/api/health || echo "000")
+              if [ "$HTTP_CODE" = "200" ]; then
+                HEALTHY=true
+                break
+              fi
+              echo "Health check attempt $i/30: HTTP $HTTP_CODE, retrying in 10s..."
+              sleep 10
+            done
+
+            if [ "$HEALTHY" = "true" ]; then
+              echo "Health check passed"
+            else
+              echo "ERROR: Health check failed after 30 attempts"
+              exit 1
+            fi
