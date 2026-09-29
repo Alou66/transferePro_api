@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
 import { TransferService } from "./transfer.service";
-import { createTransferSchema, transferIdSchema, agentIdSchema, listTransfersQuerySchema, incomingTransfersQuerySchema, verifyWithdrawalCodeSchema } from "./transfer.validator";
+import { createTransferSchema, updateTransferSchema, transferIdSchema, agentIdSchema, listTransfersQuerySchema, incomingTransfersQuerySchema, verifyWithdrawalCodeSchema } from "./transfer.validator";
 import { RequestWithUser } from "../../types/auth";
 import { UserRole } from "@prisma/client";
 
@@ -20,6 +20,31 @@ export class TransferController {
 
     res.status(201).json({
       success: true,
+      data: transfer,
+    });
+  }
+
+  static async updateTransfer(req: Request, res: Response) {
+    const transferId = transferIdSchema.parse(req.params);
+    const validated = updateTransferSchema.parse(req.body);
+    const user = (req as RequestWithUser).user;
+
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: "Utilisateur non authentifié",
+      });
+    }
+
+    const transfer = await TransferService.updateTransfer(
+      transferId.id,
+      user.userId,
+      validated,
+    );
+
+    res.json({
+      success: true,
+      message: "Transfert modifié avec succès",
       data: transfer,
     });
   }
@@ -166,7 +191,8 @@ export class TransferController {
       user.userId,
       query.page,
       query.limit,
-      query.status
+      query.status,
+      query.search
     );
 
     res.json({

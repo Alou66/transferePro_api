@@ -99,6 +99,150 @@ export class TransferService {
     return serializeTransfer(transfer);
   }
 
+  static async updateTransfer(transferId: string, agentId: string, data: {
+    senderName?: string;
+    senderPhone?: string;
+    recipientName?: string;
+    recipientPhone?: string;
+    amount?: number;
+    destinationCityId?: string;
+  }) {
+    const transfer = await transferRepository.findById(transferId);
+
+    if (!transfer) {
+      throw new AppError("Transfert introuvable", 404);
+    }
+
+    // Même règle d'accès que l'annulation : seul l'agent d'origine gère le
+    // contenu de son transfert.
+    if (transfer.originAgentId !== agentId) {
+      throw new AppError("Accès interdit", 403);
+    }
+
+    // Règle métier : un transfert payé est figé. Contrôlé ici et non dans le
+    // frontend, et re-vérifié atomiquement en base par l'écriture elle-même.
+    if (transfer.status === "PAID") {
+      throw new AppError(
+        "Ce transfert a déjà été payé, il ne peut plus être modifié",
+        409,
+      );
+    }
+
+    if (transfer.status === "CANCELLED") {
+      throw new AppError("Un transfert annulé ne peut pas être modifié", 400);
+    }
+
+    const updates: {
+      senderName?: string;
+      senderPhone?: string;
+      recipientName?: string;
+      recipientPhone?: string;
+      amount?: string;
+      fee?: string;
+      destinationCityId?: string;
+      destinationAgentId?: string;
+    } = {};
+
+    if (data.senderName !== undefined) {
+      updates.senderName = data.senderName;
+    }
+    if (data.senderPhone !== undefined) {
+      updates.senderPhone = data.senderPhone;
+    }
+    if (data.recipientName !== undefined) {
+      updates.recipientName = data.recipientName;
+    }
+    if (data.recipientPhone !== undefined) {
+      updates.recipientPhone = data.recipientPhone;
+    }
+
+    // Le montant et les frais sont indissociables : les frais sont dérivés du
+    // montant par tranches. On les recalcule ensemble pour préserver
+    // l'invariant total = montant + frais utilisé partout ailleurs.
+    if (data.amount !== undefined) {
+      updates.amount = String(data.amount);
+      updates.fee = String(calculateTransferFee(data.amount));
+    }
+
+    if (data.destinationCityId !== undefined) {
+      // Changement de destination : on rejoue exactement les mêmes contrôles
+      // que la création, et l'agent destinataire doit être recalculé pour que
+      // le transfert parte bien vers l'agent de la nouvelle ville.
+      const destinationCity = await transferRepository.findDestinationCity(
+        data.destinationCityId,
+      );
+
+      if (!destinationCity) {
+        throw new AppError("Ville de destination introuvable", 404);
+      }
+
+      if (!destinationCity.isActive) {
+        throw new AppError("Cette ville n'est pas disponible", 400);
+      }
+
+      if (data.destinationCityId === transfer.originCityId) {
+        throw new AppError(
+          "La ville de destination doit être différente de la ville d'origine",
+          400,
+        );
+      }
+
+      const destinationAgent = await transferRepository.findActiveAgentByCity(
+        data.destinationCityId,
+      );
+
+      if (!destinationAgent) {
+        throw new AppError(
+          "Aucun agent actif n'est disponible dans cette ville",
+          400,
+        );
+      }
+
+      updates.destinationCityId = data.destinationCityId;
+      updates.destinationAgentId = destinationAgent.id;
+    }
+
+    const result = await transferRepository.updateTransfer(
+      transferId,
+      agentId,
+      updates,
+    );
+
+    if (result.count === 0) {
+      // Le transfert a été payé (ou annulé) entre la lecture et l'écriture :
+      // on relit pour renvoyer l'erreur métier exacte plutôt qu'un 400 opaque.
+      const current = await transferRepository.findById(transferId);
+
+      if (!current) {
+        throw new AppError("Transfert introuvable", 404);
+      }
+
+      if (current.status === "PAID") {
+        throw new AppError(
+          "Ce transfert a déjà été payé, il ne peut plus être modifié",
+          409,
+        );
+      }
+
+      if (current.status === "CANCELLED") {
+        throw new AppError("Un transfert annulé ne peut pas être modifié", 400);
+      }
+
+      throw new AppError(
+        "Ce transfert ne peut pas être modifié dans son état actuel",
+        400,
+      );
+    }
+
+    const updatedTransfer = await transferRepository.findById(transferId);
+
+    if (!updatedTransfer) {
+      throw new AppError("Transfert introuvable", 404);
+    }
+
+    return serializeTransfer(updatedTransfer);
+  }
+
   static async getTransferById(transferId: string, requesterId: string, requesterRole: UserRole) {
     const transfer = await transferRepository.findById(transferId);
 
@@ -206,12 +350,18 @@ export class TransferService {
     };
   }
 
-  static async getIncomingTransfers(agentId: string, page: number, limit: number, status?: TransferStatus[]) {
+  static async getIncomingTransfers(
+    agentId: string,
+    page: number,
+    limit: number,
+    status?: TransferStatus[],
+    search?: string,
+  ) {
     const skip = (page - 1) * limit;
 
     const [items, total] = await Promise.all([
-      transferRepository.findIncomingByAgent(agentId, skip, limit, status),
-      transferRepository.countByDestinationAgent(agentId, status),
+      transferRepository.findIncomingByAgent(agentId, skip, limit, status, search),
+      transferRepository.countByDestinationAgent(agentId, status, search),
     ]);
 
     const totalPages = Math.ceil(total / limit) || 1;

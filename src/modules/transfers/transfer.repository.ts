@@ -1,4 +1,4 @@
-import { TransferStatus, UserRole, UserStatus } from "@prisma/client";
+import { Prisma, TransferStatus, UserRole, UserStatus } from "@prisma/client";
 import { prisma } from "../../config/database";
 
 const transferSelect = {
@@ -109,6 +109,68 @@ const transferListSelect = {
   updatedAt: true,
 } as const
 
+// Champs réellement modifiables depuis l'endpoint de modification. Toute autre
+// colonne (reference, fee, status, withdrawalCode, paidAt, agents) est
+// volontairement absente de ce type : elle ne peut pas être écrite ici.
+type TransferUpdateData = {
+  senderName?: string;
+  senderPhone?: string;
+  recipientName?: string;
+  recipientPhone?: string;
+  amount?: string;
+  fee?: string;
+  destinationCityId?: string;
+  destinationAgentId?: string;
+};
+
+/**
+ * Neutralise les jokers du motif LIKE de PostgreSQL.
+ *
+ * `contains` compiles en ILIKE '%terme%' et Prisma n'échappe pas les
+ * métacaractères : sans ce traitement, une recherche sur "%" (ou "_", ou
+ * "%_%") ne cherche pas un nom mais renvoie tous les transferts. On échappe
+ * donc la barre oblique inverse ainsi que % et _, qui redeviennent des
+ * caractères littéraux. La requête reste paramétrée : il ne s'agit pas d'une
+ * injection SQL, seulement d'un motif LIKE quiurasait trop large.
+ */
+function escapeLikeTerm(term: string): string {
+  return term.replace(/([\\%_])/g, "\\$1");
+}
+
+/**
+ * Filtre des transferts entrants, utilisé par la liste ET par le compte.
+ *
+ * Les deux construisant leur `where` avec cette même fonction, la pagination
+ * ne peut pas dériver du filtre affiché (sinon on afficherait « page 2 »
+ * d'un total sans rapport avec les lignes renvoyées).
+ *
+ * `search` porte sur le nom de l'expéditeur ou celui du bénéficiaire, sans
+ * distinction : l'agent saisit un seul terme et retrouve le transfert quel que
+ * soit le côté. La comparaison est insensible à la casse et au trait d'union,
+ * pour que "sokhna" retrouve "Sokhna Aïda".
+ */
+function buildIncomingWhere(
+  agentId: string,
+  status?: TransferStatus | TransferStatus[],
+  search?: string,
+): Prisma.TransferWhereInput {
+  const term = search?.trim();
+  const pattern = term ? escapeLikeTerm(term) : undefined;
+
+  return {
+    destinationAgentId: agentId,
+    ...(status ? { status: Array.isArray(status) ? { in: status } : status } : {}),
+    ...(pattern
+      ? {
+          OR: [
+            { senderName: { contains: pattern, mode: "insensitive" } },
+            { recipientName: { contains: pattern, mode: "insensitive" } },
+          ],
+        }
+      : {}),
+  };
+}
+
 export const transferRepository = {
   findDestinationCity: (id: string) =>
     prisma.city.findUnique({
@@ -198,24 +260,28 @@ export const transferRepository = {
       select: transferSelectWithCode,
     }),
 
-  findIncomingByAgent: (agentId: string, skip: number, take: number, status?: TransferStatus | TransferStatus[]) =>
+  findIncomingByAgent: (
+    agentId: string,
+    skip: number,
+    take: number,
+    status?: TransferStatus | TransferStatus[],
+    search?: string,
+  ) =>
     prisma.transfer.findMany({
-      where: {
-        destinationAgentId: agentId,
-        ...(status ? { status: Array.isArray(status) ? { in: status } : status } : {}),
-      },
+      where: buildIncomingWhere(agentId, status, search),
       skip,
       take,
       orderBy: { createdAt: "desc" },
       select: transferListSelect,
     }),
 
-  countByDestinationAgent: (agentId: string, status?: TransferStatus | TransferStatus[]) =>
+  countByDestinationAgent: (
+    agentId: string,
+    status?: TransferStatus | TransferStatus[],
+    search?: string,
+  ) =>
     prisma.transfer.count({
-      where: {
-        destinationAgentId: agentId,
-        ...(status ? { status: Array.isArray(status) ? { in: status } : status } : {}),
-      },
+      where: buildIncomingWhere(agentId, status, search),
     }),
 
   findAllWithFilters: (skip: number, take: number, status?: TransferStatus) =>
@@ -300,5 +366,24 @@ export const transferRepository = {
       data: {
         status: "CANCELLED",
       },
+    }),
+
+  /**
+   * Modification d'un transfert, gardée atomique côté base.
+   *
+   * Le `where` porte à la fois la propriété du transfert et son statut
+   * modifiable : un paiement survenu entre la lecture du transfert et cette
+   * écriture ne peut donc pas être écrasé (updateMany renvoie alors count = 0
+   * et le service traduit l'échec en erreur métier). Même approche que
+   * cancelTransferTransition.
+   */
+  updateTransfer: (id: string, originAgentId: string, data: TransferUpdateData) =>
+    prisma.transfer.updateMany({
+      where: {
+        id,
+        originAgentId,
+        status: { in: ["CREATED", "READY_FOR_PAYMENT"] },
+      },
+      data,
     }),
 };

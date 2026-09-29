@@ -6,6 +6,7 @@ import { authorize } from "../../middlewares/authorize";
 const router = Router();
 
 router.post("/", authenticate, authorize("AGENT"), TransferController.createTransfer);
+router.put("/:id", authenticate, authorize("AGENT"), TransferController.updateTransfer);
 router.get("/", authenticate, authorize("ADMIN"), TransferController.getAllForAdmin);
 router.get("/my-all", authenticate, authorize("AGENT"), TransferController.getMyAll);
 router.get("/incoming", authenticate, authorize("AGENT"), TransferController.getIncomingTransfers);

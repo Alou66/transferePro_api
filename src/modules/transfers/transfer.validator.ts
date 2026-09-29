@@ -24,14 +24,54 @@ const optionalPhoneSchema = (requiredMessage: string) =>
       .transform((value) => value ?? ""),
   );
 
+// Validateurs de champ partagés entre la création et la modification, afin
+// qu'un transfert modifié soit soumis exactement aux mêmes règles qu'un
+// transfert créé (aucune règle métier dupliquée ni divergente).
+const senderNameSchema = z.string().min(1, "Le nom de l'expéditeur est requis");
+const senderPhoneFieldSchema = optionalPhoneSchema(
+  "Le téléphone de l'expéditeur doit contenir au moins un caractère",
+);
+const recipientNameSchema = z.string().min(1, "Le nom du bénéficiaire est requis");
+const recipientPhoneFieldSchema = optionalPhoneSchema(
+  "Le téléphone du bénéficiaire doit contenir au moins un caractère",
+);
+const amountSchema = z.coerce.number().min(1000, "Le montant minimum est de 1000 FCFA");
+const destinationCityIdSchema = z.string().uuid("Identifiant de ville invalide");
+
 export const createTransferSchema = z.object({
-  senderName: z.string().min(1, "Le nom de l'expéditeur est requis"),
-  senderPhone: optionalPhoneSchema("Le téléphone de l'expéditeur doit contenir au moins un caractère"),
-  recipientName: z.string().min(1, "Le nom du bénéficiaire est requis"),
-  recipientPhone: optionalPhoneSchema("Le téléphone du bénéficiaire doit contenir au moins un caractère"),
-  amount: z.coerce.number().min(1000, "Le montant minimum est de 1000 FCFA"),
-  destinationCityId: z.string().uuid("Identifiant de ville invalide"),
+  senderName: senderNameSchema,
+  senderPhone: senderPhoneFieldSchema,
+  recipientName: recipientNameSchema,
+  recipientPhone: recipientPhoneFieldSchema,
+  amount: amountSchema,
+  destinationCityId: destinationCityIdSchema,
 });
+
+/**
+ * Modification d'un transfert existant.
+ *
+ * Mise à jour partielle : chaque champ est omissible, ce qui permet de
+ * modifier un seul champ à la fois. Un champ téléphone omis conserve sa valeur
+ * existante, alors qu'un champ téléphone explicitement vide est effacé
+ * (normalisé en "" par optionalPhoneSchema, comme à la création).
+ *
+ * Seuls les six champs de la fonctionnalité sont acceptés : z.object supprime
+ * silencieusement toute clé inconnue, donc un client ne peut pas modifier la
+ * référence, les frais, le statut, le code de retrait ou les agents depuis cet
+ * endpoint.
+ */
+export const updateTransferSchema = z
+  .object({
+    senderName: senderNameSchema.optional(),
+    senderPhone: senderPhoneFieldSchema.optional(),
+    recipientName: recipientNameSchema.optional(),
+    recipientPhone: recipientPhoneFieldSchema.optional(),
+    amount: amountSchema.optional(),
+    destinationCityId: destinationCityIdSchema.optional(),
+  })
+  .refine((data) => Object.values(data).some((value) => value !== undefined), {
+    message: "Aucune modification fournie",
+  });
 
 export const transferIdSchema = z.object({
   id: z.string().uuid("Identifiant de transfert invalide"),
@@ -66,6 +106,10 @@ export const incomingTransfersQuerySchema = z.object({
   page: z.coerce.number().int().positive().default(1),
   limit: z.coerce.number().int().positive().max(100).default(20),
   status: transferStatusListSchema,
+  // Recherche par nom d'expéditeur OU de bénéficiaire. Un terme unique suffit :
+  // le même filtre sert aux deux côtés du transfert. La longueur est bornée
+  // pour éviter des requêtes LIKE démesurées.
+  search: z.string().trim().min(1).max(100).optional(),
 });
 
 export const verifyWithdrawalCodeSchema = z.object({
