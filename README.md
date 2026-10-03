@@ -41,6 +41,7 @@ Variables à renseigner dans `.env` :
 | `JWT_SECRET` | Secret utilisé pour signer les tokens JWT — **à générer aléatoirement**, ne jamais réutiliser une valeur d'exemple |
 | `JWT_EXPIRES_IN` | Durée de validité des tokens (ex. `24h`) |
 | `ADMIN_FIRST_NAME` / `ADMIN_LAST_NAME` / `ADMIN_EMAIL` / `ADMIN_PHONE` / `ADMIN_PASSWORD` | Identifiants du compte administrateur créé automatiquement par le seed |
+| `ENABLE_DATA_RESET` | Activation de la réinitialisation des données (opération destructive). **À laisser sur `false`**. Seule la chaîne exacte `true` l'active |
 
 Pour générer un `JWT_SECRET` sûr :
 
@@ -90,6 +91,85 @@ npm start
 ```bash
 npm run lint
 ```
+
+## Tests
+
+```bash
+npm test
+```
+
+## Réinitialisation des données (opération destructive)
+
+Endpoint d'administration qui vide les données de test :
+
+```http
+POST /api/admin/maintenance/reset-data
+Content-Type: application/json
+
+{"confirmation":"RESET"}
+```
+
+### Portée exacte
+
+| Table | Traitement |
+|---|---|
+| `cash_collections` | supprimée (tous les encaissements) |
+| `transfers` | supprimée (transferts, bénéficiaires, paiements) |
+| `users` | supprimées **uniquement les lignes `role = 'AGENT'`** |
+| `cities` | conservée |
+| `users` (`role = 'ADMIN'`) | conservé |
+| `_prisma_migrations` | conservée |
+
+Les trois suppressions s'exécutent dans une seule transaction Prisma, dans
+l'ordre imposé par les clés étrangères `ON DELETE RESTRICT`. En cas d'erreur,
+la transaction est annulée et aucune suppression partielle ne subsiste.
+
+Ce n'est ni un `DROP`, ni un `TRUNCATE`, ni un `DELETE FROM users` sans
+condition : le filtre `role = 'AGENT'` est la garantie que le compte
+administrateur survit à l'opération. Le compte à l'origine de la requête est
+en outre relu en fin de transaction ; s'il a disparu, tout est annulé.
+
+Aucune séquence n'est réinitialisée : toutes les clés primaires sont des UUID
+(`@default(uuid())`), il n'existe donc aucune séquence à manipuler.
+
+### Conditions d'accès
+
+Les quatre conditions suivantes sont cumulatives :
+
+```text
+1. JWT valide                       sinon 401
+2. rôle ADMIN                       sinon 403
+3. confirmation exactement "RESET"   sinon 400
+4. ENABLE_DATA_RESET=true           sinon 403
+```
+
+Le point 4 est le verrou principal. La variable est analysée en « fail-closed » :
+seule la chaîne exacte `true` l'active, toute autre valeur (`false`, `1`,
+`yes`, variable absente) la laisse désactivée.
+
+Le frontend interroge `GET /api/admin/maintenance/reset-data/available` pour
+afficher ou masquer le bouton. Ce n'est qu'un confort d'affichage : la décision
+est prise par le backend, un appel direct à l'API sans la bonne variable est
+refusé.
+
+### Usage prévu
+
+Réservé au **reset initial des données de test, avant le démarrage réel de la
+plateforme**. Une fois des comptes agents et des transferts réels créés,
+l'opération doit rester désactivée. La procédure complète, avec les vérifications
+et la remise à `false`, est décrite dans `transfertPro-infra/RUNBOOK_PRODUCTION.md`
+(section 27).
+
+### Journalisation
+
+Le projet n'a pas de table d'audit. L'opération est donc tracée sur la sortie
+console, sans donnée sensible (ni email, ni téléphone, ni mot de passe) :
+
+```text
+[AUDIT] action=RESET_TRANSACTIONAL_DATA actor=<uuid> role=ADMIN outcome=SUCCESS date=<ISO> { cashCollections: 0, transfers: 12, agents: 3 }
+```
+
+Un `outcome=FAILED` est écrit si la transaction échoue.
 
 ## Frontend
 
